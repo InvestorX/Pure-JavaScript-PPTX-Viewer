@@ -1,0 +1,75 @@
+/* Base Reset */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif;
+    background: #1e1e1e; color: #e0e0e0;
+    overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+}
+
+/* Toolbar */
+.wrapper { display: flex; flex-direction: column; height: 100vh; width: 100%; }
+.toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #2d2d2d; border-bottom: 1px solid #3c3c3c;
+    padding: 8px 16px; flex-shrink: 0; z-index: 100;
+}
+.file-label {
+    background: #007acc; color: white; padding: 6px 12px; border-radius: 3px;
+    cursor: pointer; font-size: 13px; user-select: none;
+}
+.file-label:hover { background: #005fa3; }
+.controls button {
+    background: #3e3e3e; color: #eee; border: 1px solid #555;
+    padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 14px;
+}
+.controls button:disabled { opacity: 0.5; cursor: default; }
+
+/* Viewer Container */
+.slides-container {
+    flex: 1; overflow: auto; background: #121212;
+    display: flex; justify-content: center; align-items: center;
+    position: relative; padding: 40px;
+}
+#slides-viewport {
+    transform-origin: center center; transition: transform 0.1s;
+    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+}
+.slide-frame {
+    position: relative; overflow: hidden; background: white;
+}
+
+/* Elements */
+.shape {
+    position: absolute; overflow: visible;
+    display: flex; flex-direction: column;
+}
+.shape-content {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+}
+.para {
+    display: block; margin: 0; min-height: 1.2em; line-height: 1.25;
+    white-space: pre-wrap; word-break: break-word; position: relative;
+}
+
+/* Table Styles */
+.ppt-table {
+    width: 100%; height: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.ppt-td {
+    padding: 4px;
+    overflow: hidden;
+    word-wrap: break-word;
+    border: 1px solid rgba(255,255,255,0.2);
+    vertical-align: top;
+}
+
+img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+
+#loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #fff; font-size: 1.2rem; display: none; background: rgba(0,0,0,0.8);
+    padding: 15px 25px; border-radius: 8px; z-index: 999;
+}
