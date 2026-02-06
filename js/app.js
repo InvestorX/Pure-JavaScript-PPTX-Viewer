@@ -253,7 +253,7 @@ class PptxParser {
                 }
 
                 // Cell Text
-                const textData = this.parseTxBody(Utils.find(tc, "txBody"));
+                const textData = this.parseTxBody(Utils.find(tc, "txBody"), rels);
 
                 cells.push({
                     rowSpan, colSpan: gridSpan,
@@ -268,7 +268,7 @@ class PptxParser {
     }
 
     // --- Common Text Parsing (Used for Shapes and Tables) ---
-    parseTxBody(txBodyNode) {
+    parseTxBody(txBodyNode, rels) {
         if (!txBodyNode) return null;
 
         let vAlign = "top";
@@ -323,7 +323,18 @@ class PptxParser {
                     }
                 }
                 if (!style.color) style.color = "#e0e0e0"; // default text color for dark theme
-                runs.push({ text: tNode.textContent, style });
+
+                let link = null;
+                if (rPr && rels && rels._hyperlinks) {
+                    const hlinkClick = Utils.find(rPr, "hlinkClick");
+                    if (hlinkClick) {
+                        const rId = hlinkClick.getAttribute("r:id");
+                        if (rId && rels._hyperlinks[rId]) {
+                            link = rels._hyperlinks[rId];
+                        }
+                    }
+                }
+                runs.push({ text: tNode.textContent, style, link });
             }
             if (runs.length === 0) runs.push({ text: "\u00A0", style: {} });
             paragraphs.push({ align, marL, indent, runs });
@@ -434,7 +445,7 @@ class PptxParser {
         }
 
         const txBody = Utils.findAll(node, "txBody")[0];
-        const textData = this.parseTxBody(txBody);
+        const textData = this.parseTxBody(txBody, rels);
 
         if (!textData && !bgColor) return { type: 'rect', box, isPlaceholder, phType, phIdx, visible: false };
 
@@ -453,11 +464,18 @@ class PptxParser {
         const dir = parts.join("/");
         const relsPath = `${dir}/_rels/${fileName}.rels`;
         const relsMap = {};
+        const hyperlinks = {};
         const xml = await this.readXml(relsPath);
         if (xml) {
             const rels = Utils.findAll(xml.documentElement, "Relationship");
-            for (const r of rels) relsMap[r.getAttribute("Id")] = r.getAttribute("Target");
+            for (const r of rels) {
+                relsMap[r.getAttribute("Id")] = r.getAttribute("Target");
+                if (r.getAttribute("TargetMode") === "External") {
+                    hyperlinks[r.getAttribute("Id")] = r.getAttribute("Target");
+                }
+            }
         }
+        Object.defineProperty(relsMap, '_hyperlinks', { value: hyperlinks, enumerable: false });
         return relsMap;
     }
 
@@ -485,11 +503,19 @@ class PptxParser {
     }
 
     resolvePath(base, target) {
+        if (target.startsWith("/")) {
+            return target.substring(1);
+        }
+        if (/^https?:\/\//i.test(target)) {
+            return target;
+        }
         const baseDir = base.substring(0, base.lastIndexOf("/"));
-        const parts = baseDir.split("/");
-        const tParts = target.split("/");
+        const parts = baseDir.split("/").filter(p => p !== "");
+        const tParts = target.split("/").filter(p => p !== "");
         for (const p of tParts) {
-            if (p === "..") parts.pop();
+            if (p === "..") {
+                if (parts.length > 0) parts.pop();
+            }
             else if (p !== ".") parts.push(p);
         }
         return parts.join("/");
@@ -712,6 +738,17 @@ const App = {
 
         p.runs.forEach(r => {
             if (r.text === '\n') pEl.appendChild(document.createElement('br'));
+            else if (r.link) {
+                const a = document.createElement('a');
+                a.textContent = r.text;
+                Object.assign(a.style, r.style);
+                a.href = r.link;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.style.textDecoration = 'underline';
+                a.style.cursor = 'pointer';
+                pEl.appendChild(a);
+            }
             else {
                 const span = document.createElement('span');
                 span.textContent = r.text;
