@@ -1,6 +1,6 @@
 "use strict";
 
-/** * Utils */
+/** Utils */
 const Utils = {
     parseXml: (xmlStr) => new DOMParser().parseFromString(xmlStr, "application/xml"),
     emuToPx: (emu) => Math.round(Number(emu) / 9525),
@@ -46,50 +46,15 @@ const Utils = {
     },
 
     /**
-     * テキストをサニタイズしてXSSを防止する
-     */
-    sanitizeText: (text) => {
-        if (typeof text !== "string") return "";
-        return text;
-    },
-
-    /**
-     * ファイル名をサニタイズして安全に表示する
-     */
-    sanitizeFileName: (name) => {
-        if (typeof name !== "string") return "";
-        const div = document.createElement("div");
-        div.textContent = name;
-        return div.innerHTML;
-    },
-
-    /**
      * PPTXファイルの基本バリデーション
      */
     validatePptxFile: (file) => {
         const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
-        const ALLOWED_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
         if (!file) return { valid: false, error: "ファイルが選択されていません。" };
         if (file.size > MAX_FILE_SIZE) return { valid: false, error: "ファイルサイズが大きすぎます（上限: 200MB）。" };
         if (!file.name.toLowerCase().endsWith(".pptx")) return { valid: false, error: "PPTXファイルのみ対応しています。" };
         return { valid: true };
-    },
-
-    /**
-     * CSS値として安全な色コードかどうかを検証する
-     */
-    isValidColor: (color) => {
-        if (typeof color !== "string") return false;
-        return /^#[0-9a-fA-F]{6}$/.test(color);
-    },
-
-    /**
-     * 安全な色コードを返す（不正な場合はフォールバック）
-     */
-    safeColor: (color, fallback) => {
-        if (Utils.isValidColor(color)) return color;
-        return fallback || null;
     }
 };
 
@@ -358,7 +323,7 @@ class PptxParser {
                     }
                 }
                 if (!style.color) style.color = "#e0e0e0"; // default text color for dark theme
-                runs.push({ text: Utils.sanitizeText(tNode.textContent), style });
+                runs.push({ text: tNode.textContent, style });
             }
             if (runs.length === 0) runs.push({ text: "\u00A0", style: {} });
             paragraphs.push({ align, marL, indent, runs });
@@ -596,7 +561,7 @@ class PptxParser {
     }
 }
 
-/** * App Controller */
+/** App Controller */
 const App = {
     parser: new PptxParser(),
     curr: 0, total: 0, zoom: 1.0,
