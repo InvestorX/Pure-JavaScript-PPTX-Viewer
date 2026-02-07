@@ -941,6 +941,7 @@ const App = {
         loading.textContent = 'PDF作成中...';
 
         try {
+            if (!window.jspdf) throw new Error('jsPDF library failed to load. Check your internet connection and try again.');
             const { jsPDF } = window.jspdf;
             const sw = App.parser.slideSize.width;
             const sh = App.parser.slideSize.height;
