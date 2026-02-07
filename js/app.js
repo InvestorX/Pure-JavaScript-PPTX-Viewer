@@ -128,7 +128,13 @@ class PptxParser {
         this._supplementaryTexts = [];
         let allShapes = [];
         // Master -> Layout -> Slide order
-        if (hierarchy[2]) allShapes = allShapes.concat((await this.extractShapes(hierarchy[2].xml, hierarchy[2].rels, hierarchy[2].path)).filter(s => !s.isPlaceholder));
+        if (hierarchy[2]) {
+            const mShapes = await this.extractShapes(hierarchy[2].xml, hierarchy[2].rels, hierarchy[2].path);
+            this.masterPlaceholders = mShapes.filter(s => s.isPlaceholder);
+            allShapes = allShapes.concat(mShapes.filter(s => !s.isPlaceholder));
+        } else {
+            this.masterPlaceholders = [];
+        }
         if (hierarchy[1]) {
             const lShapes = await this.extractShapes(hierarchy[1].xml, hierarchy[1].rels, hierarchy[1].path);
             this.layoutPlaceholders = lShapes.filter(s => s.isPlaceholder);
@@ -140,8 +146,12 @@ class PptxParser {
         const slideShapes = await this.extractShapes(slideXml, slideRels, slidePath);
         slideShapes.forEach(shape => {
             if (shape.isPlaceholder && (!shape.box || (shape.box.w === 0 && shape.box.h === 0))) {
-                const layoutPh = this.matchPlaceholder(shape, this.layoutPlaceholders);
-                if (layoutPh && layoutPh.box) shape.box = { ...layoutPh.box };
+                let ph = this.matchPlaceholder(shape, this.layoutPlaceholders);
+                if (!ph || !ph.box || (ph.box.w === 0 && ph.box.h === 0)) {
+                    const masterPh = this.matchPlaceholder(shape, this.masterPlaceholders);
+                    if (masterPh && masterPh.box && (masterPh.box.w > 0 || masterPh.box.h > 0)) ph = masterPh;
+                }
+                if (ph && ph.box) shape.box = { ...ph.box };
             }
         });
 
@@ -156,9 +166,15 @@ class PptxParser {
         return { size: this.slideSize, background, shapes: allShapes, supplementaryTexts: this._supplementaryTexts };
     }
 
-    matchPlaceholder(slideShape, layoutPlaceholders) {
-        if (slideShape.phIdx !== undefined) return layoutPlaceholders.find(p => p.phIdx === slideShape.phIdx);
-        if (slideShape.phType !== undefined) return layoutPlaceholders.find(p => p.phType === slideShape.phType);
+    matchPlaceholder(slideShape, placeholders) {
+        if (slideShape.phIdx != null) {
+            const match = placeholders.find(p => p.phIdx === slideShape.phIdx);
+            if (match) return match;
+        }
+        if (slideShape.phType != null) {
+            const match = placeholders.find(p => p.phType === slideShape.phType);
+            if (match) return match;
+        }
         return null;
     }
 
@@ -358,7 +374,7 @@ class PptxParser {
                 if (c) style.color = c;
             }
         }
-        if (!style.color) style.color = "#e0e0e0";
+        if (!style.color) style.color = "#000000";
         let link = null;
         if (rPr && rels && rels._hyperlinks) {
             const hlinkClick = Utils.find(rPr, "hlinkClick");
@@ -570,7 +586,7 @@ class PptxParser {
                 }
             }
         }
-        return { type: 'color', value: '#1e1e1e' }; // Dark default
+        return { type: 'color', value: '#ffffff' }; // White default
     }
 
     async loadImage(path) {
