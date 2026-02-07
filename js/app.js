@@ -125,6 +125,7 @@ class PptxParser {
         const hierarchy = await this.resolveHierarchy(slidePath, slideRels);
         const background = await this.resolveBackground(hierarchy);
 
+        this._supplementaryTexts = [];
         let allShapes = [];
         // Master -> Layout -> Slide order
         if (hierarchy[2]) allShapes = allShapes.concat((await this.extractShapes(hierarchy[2].xml, hierarchy[2].rels, hierarchy[2].path)).filter(s => !s.isPlaceholder));
@@ -144,9 +145,15 @@ class PptxParser {
             }
         });
 
-        allShapes = allShapes.concat(slideShapes.filter(s => s.box && s.box.w > 0));
+        // Include shapes with text even if zero-size (rescue)
+        allShapes = allShapes.concat(slideShapes.filter(s => {
+            if (!s.box) return false;
+            if (s.box.w > 0) return true;
+            if (s.paragraphs && s.paragraphs.some(p => p.runs.some(r => r.text && r.text.trim()))) return true;
+            return false;
+        }));
 
-        return { size: this.slideSize, background, shapes: allShapes };
+        return { size: this.slideSize, background, shapes: allShapes, supplementaryTexts: this._supplementaryTexts };
     }
 
     matchPlaceholder(slideShape, layoutPlaceholders) {
@@ -181,9 +188,10 @@ class PptxParser {
             else if (["sp", "pic", "graphicFrame"].includes(name)) {
                 // Table detection inside graphicFrame
                 let isTable = false;
+                let graphicData = null;
                 if (name === "graphicFrame") {
                     const graphic = Utils.find(child, "graphic");
-                    const graphicData = graphic ? Utils.find(graphic, "graphicData") : null;
+                    graphicData = graphic ? Utils.find(graphic, "graphicData") : null;
                     if (graphicData && Utils.find(graphicData, "tbl")) isTable = true;
                 }
 
@@ -198,6 +206,15 @@ class PptxParser {
                     if (shape) {
                         shape.box = transform(shape.box);
                         list.push(shape);
+                    }
+                    // Extract SmartArt/Chart external text
+                    if (name === "graphicFrame" && graphicData && this._supplementaryTexts) {
+                        const exTexts = await this.extractExternalText(graphicData, rels, sourcePath);
+                        if (exTexts.length > 0) {
+                            const uri = graphicData.getAttribute("uri") || "";
+                            const source = uri.includes("diagram") ? "SmartArt" : uri.includes("chart") ? "Chart" : "Graphic";
+                            this._supplementaryTexts.push({ source, texts: exTexts });
+                        }
                     }
                 }
             }
@@ -300,47 +317,57 @@ class PptxParser {
             }
 
             const runs = [];
-            const rNodes = Utils.findAll(p, "r");
-            for (const r of rNodes) {
-                const tNode = Utils.find(r, "t");
-                if (!tNode) {
-                    if (Utils.find(r, "br")) runs.push({ text: "\n", style: {} });
-                    continue;
-                }
-
-                const rPr = Utils.find(r, "rPr");
-                const style = {};
-                if (rPr) {
-                    const sz = rPr.getAttribute("sz");
-                    if (sz) style.fontSize = (parseInt(sz, 10) / 100) + "pt";
-                    if (rPr.getAttribute("b") === "1") style.fontWeight = "bold";
-                    if (rPr.getAttribute("i") === "1") style.fontStyle = "italic";
-
-                    const fill = Utils.find(rPr, "solidFill");
-                    if (fill) {
-                        const c = this.extractColor(fill);
-                        if (c) style.color = c;
-                    }
-                }
-                if (!style.color) style.color = "#e0e0e0"; // default text color for dark theme
-
-                let link = null;
-                if (rPr && rels && rels._hyperlinks) {
-                    const hlinkClick = Utils.find(rPr, "hlinkClick");
-                    if (hlinkClick) {
-                        const rId = hlinkClick.getAttribute("r:id");
-                        if (rId && rels._hyperlinks[rId]) {
-                            link = rels._hyperlinks[rId];
-                        }
-                    }
-                }
-                runs.push({ text: tNode.textContent, style, link });
-            }
+            this.collectRunsFromNode(p, runs, rels);
             if (runs.length === 0) runs.push({ text: "\u00A0", style: {} });
             paragraphs.push({ align, marL, indent, runs });
         }
 
         return { vAlign, pad, paragraphs };
+    }
+
+    // --- Collect runs from paragraph children (handles <a:r>, <a:br>, <a:fld>, AlternateContent) ---
+    collectRunsFromNode(node, runs, rels) {
+        for (let i = 0; i < node.children.length; i++) {
+            const child = node.children[i];
+            const cName = child.localName;
+            if (cName === "r" || cName === "fld") {
+                this.parseRunNode(child, runs, rels);
+            } else if (cName === "br") {
+                runs.push({ text: "\n", style: {} });
+            } else if (cName === "AlternateContent") {
+                const choice = Utils.find(child, "Choice");
+                const target = choice || Utils.find(child, "Fallback");
+                if (target) this.collectRunsFromNode(target, runs, rels);
+            }
+        }
+    }
+
+    parseRunNode(node, runs, rels) {
+        const tNode = Utils.find(node, "t");
+        if (!tNode) return;
+        const rPr = Utils.find(node, "rPr");
+        const style = {};
+        if (rPr) {
+            const sz = rPr.getAttribute("sz");
+            if (sz) style.fontSize = (parseInt(sz, 10) / 100) + "pt";
+            if (rPr.getAttribute("b") === "1") style.fontWeight = "bold";
+            if (rPr.getAttribute("i") === "1") style.fontStyle = "italic";
+            const fill = Utils.find(rPr, "solidFill");
+            if (fill) {
+                const c = this.extractColor(fill);
+                if (c) style.color = c;
+            }
+        }
+        if (!style.color) style.color = "#e0e0e0";
+        let link = null;
+        if (rPr && rels && rels._hyperlinks) {
+            const hlinkClick = Utils.find(rPr, "hlinkClick");
+            if (hlinkClick) {
+                const rId = hlinkClick.getAttribute("r:id");
+                if (rId && rels._hyperlinks[rId]) link = rels._hyperlinks[rId];
+            }
+        }
+        runs.push({ text: tNode.textContent, style, link });
     }
 
     async processGroup(node, rels, sourcePath, list, parentTransform) {
@@ -585,6 +612,54 @@ class PptxParser {
         }
         return colorHex;
     }
+
+    // --- Extract text from SmartArt/Chart external XML files ---
+    async extractExternalText(graphicData, rels, sourcePath) {
+        const uri = graphicData.getAttribute("uri") || "";
+        const texts = [];
+
+        // SmartArt (diagram)
+        if (uri.includes("diagram")) {
+            const relIds = Utils.find(graphicData, "relIds");
+            if (relIds) {
+                const dmId = relIds.getAttribute("r:dm");
+                if (dmId && rels[dmId]) {
+                    const dmPath = this.resolvePath(sourcePath, rels[dmId]);
+                    const dmXml = await this.readXml(dmPath);
+                    if (dmXml) {
+                        const tNodes = Utils.findAll(dmXml.documentElement, "t");
+                        for (const t of tNodes) {
+                            const txt = t.textContent.trim();
+                            if (txt) texts.push(txt);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Chart
+        if (uri.includes("chart")) {
+            for (let ci = 0; ci < graphicData.children.length; ci++) {
+                const ch = graphicData.children[ci];
+                if (ch.localName === "chart") {
+                    const rId = ch.getAttribute("r:id");
+                    if (rId && rels[rId]) {
+                        const chartPath = this.resolvePath(sourcePath, rels[rId]);
+                        const chartXml = await this.readXml(chartPath);
+                        if (chartXml) {
+                            const tNodes = Utils.findAll(chartXml.documentElement, "t");
+                            for (const t of tNodes) {
+                                const txt = t.textContent.trim();
+                                if (txt) texts.push(txt);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return texts;
+    }
 }
 
 /** App Controller */
@@ -647,7 +722,16 @@ const App = {
         }
 
         data.shapes.forEach(s => {
-            if (s.box.w === 0 && s.box.h === 0) return;
+            let zeroSizeRescue = false;
+            if (s.box.w === 0 && s.box.h === 0) {
+                if (s.paragraphs && s.paragraphs.some(p => p.runs.some(r => r.text && r.text.trim()))) {
+                    s.box.w = 200;
+                    s.box.h = 50;
+                    zeroSizeRescue = true;
+                } else {
+                    return;
+                }
+            }
 
             const el = document.createElement(s.type === 'image' ? 'img' : 'div');
             el.className = 'shape';
@@ -656,6 +740,7 @@ const App = {
             el.style.width = s.box.w + 'px';
             el.style.height = s.box.h + 'px';
             if (s.box.rot) el.style.transform = `rotate(${s.box.rot}deg)`;
+            if (zeroSizeRescue) el.style.border = '2px solid red';
 
             if (s.type === 'image') {
                 el.src = s.src;
@@ -726,6 +811,35 @@ const App = {
         });
 
         vp.appendChild(frame);
+
+        // Render SmartArt/Chart supplementary text area
+        if (data.supplementaryTexts && data.supplementaryTexts.length > 0) {
+            const suppArea = document.createElement('div');
+            suppArea.className = 'supplementary-area';
+            suppArea.style.width = data.size.width + 'px';
+
+            const title = document.createElement('div');
+            title.className = 'supplementary-title';
+            title.textContent = 'SmartArt/Chart Text';
+            suppArea.appendChild(title);
+
+            data.supplementaryTexts.forEach(item => {
+                const sourceLabel = document.createElement('div');
+                sourceLabel.className = 'supplementary-source';
+                sourceLabel.textContent = `[${item.source}]`;
+                suppArea.appendChild(sourceLabel);
+
+                item.texts.forEach(t => {
+                    const textEl = document.createElement('div');
+                    textEl.className = 'supplementary-text';
+                    textEl.textContent = t;
+                    suppArea.appendChild(textEl);
+                });
+            });
+
+            vp.appendChild(suppArea);
+        }
+
         App.renderZoom();
     },
 
