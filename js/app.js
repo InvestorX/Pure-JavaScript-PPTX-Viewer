@@ -725,6 +725,8 @@ const App = {
             let zeroSizeRescue = false;
             if (s.box.w === 0 && s.box.h === 0) {
                 if (s.paragraphs && s.paragraphs.some(p => p.runs.some(r => r.text && r.text.trim()))) {
+                    s.box.x = 0;
+                    s.box.y = 0;
                     s.box.w = 200;
                     s.box.h = 50;
                     zeroSizeRescue = true;
