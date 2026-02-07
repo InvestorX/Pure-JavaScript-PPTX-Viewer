@@ -690,6 +690,8 @@ const App = {
         document.getElementById('btn-zoom-in').onclick = () => App.z(0.1);
         document.getElementById('btn-zoom-out').onclick = () => App.z(-0.1);
         document.getElementById('btn-zoom-reset').onclick = () => { App.zoom = 1.0; App.render(); };
+        document.getElementById('btn-export-pdf').onclick = () => App.exportPDF();
+        document.getElementById('btn-export-images').onclick = () => App.exportImages();
         window.onresize = () => App.fit();
     },
 
@@ -705,7 +707,11 @@ const App = {
         try {
             App.total = await App.parser.load(file);
             App.curr = 0;
-            if (App.total > 0) { await App.draw(); App.fit(); }
+            if (App.total > 0) {
+                await App.draw(); App.fit();
+                document.getElementById('btn-export-pdf').disabled = false;
+                document.getElementById('btn-export-images').disabled = false;
+            }
             else alert("スライドが見つかりませんでした。");
         } catch (e) { console.error(e); alert("読み込みエラー: " + e.message); }
         document.getElementById('loading').style.display = 'none';
@@ -903,6 +909,95 @@ const App = {
         const vp = document.getElementById('slides-viewport');
         vp.style.transform = `scale(${App.zoom})`;
         document.getElementById('btn-zoom-reset').textContent = Math.round(App.zoom * 100) + '%';
+    },
+
+    async captureSlide(index) {
+        const savedCurr = App.curr;
+        const savedZoom = App.zoom;
+        App.curr = index;
+        App.zoom = 1.0;
+        await App.draw();
+
+        const vp = document.getElementById('slides-viewport');
+        vp.style.transform = 'scale(1)';
+
+        const frame = vp.querySelector('.slide-frame');
+        const canvas = await html2canvas(frame, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: null
+        });
+
+        App.curr = savedCurr;
+        App.zoom = savedZoom;
+        vp.style.transform = `scale(${savedZoom})`;
+        return canvas;
+    },
+
+    async exportPDF() {
+        if (App.total === 0) return;
+        const loading = document.getElementById('loading');
+        loading.style.display = 'block';
+        loading.textContent = 'PDF作成中...';
+
+        try {
+            const { jsPDF } = window.jspdf;
+            const sw = App.parser.slideSize.width;
+            const sh = App.parser.slideSize.height;
+            const orientation = sw >= sh ? 'landscape' : 'portrait';
+            const pdf = new jsPDF({ orientation, unit: 'px', format: [sw, sh] });
+
+            for (let i = 0; i < App.total; i++) {
+                loading.textContent = `PDF作成中... (${i + 1}/${App.total})`;
+                if (i > 0) pdf.addPage([sw, sh], orientation);
+                const canvas = await App.captureSlide(i);
+                const imgData = canvas.toDataURL('image/jpeg', 0.92);
+                pdf.addImage(imgData, 'JPEG', 0, 0, sw, sh);
+            }
+
+            pdf.save('slides.pdf');
+        } catch (e) {
+            console.error(e);
+            alert('PDF作成エラー: ' + e.message);
+        }
+
+        await App.draw();
+        App.renderZoom();
+        loading.style.display = 'none';
+        loading.textContent = '解析中...';
+    },
+
+    async exportImages() {
+        if (App.total === 0) return;
+        const loading = document.getElementById('loading');
+        loading.style.display = 'block';
+        loading.textContent = '画像作成中...';
+
+        try {
+            const zip = new JSZip();
+            for (let i = 0; i < App.total; i++) {
+                loading.textContent = `画像作成中... (${i + 1}/${App.total})`;
+                const canvas = await App.captureSlide(i);
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                zip.file(`slide_${String(i + 1).padStart(3, '0')}.png`, blob);
+            }
+
+            loading.textContent = 'ZIP作成中...';
+            const content = await zip.generateAsync({ type: 'blob' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(content);
+            a.download = 'slides.zip';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        } catch (e) {
+            console.error(e);
+            alert('画像作成エラー: ' + e.message);
+        }
+
+        await App.draw();
+        App.renderZoom();
+        loading.style.display = 'none';
+        loading.textContent = '解析中...';
     },
 
     render() {

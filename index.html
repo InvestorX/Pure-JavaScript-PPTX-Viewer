@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pure JS PPTX Viewer (v4 - Table Support)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.1.0/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -26,6 +28,9 @@
             <button id="btn-zoom-out">-</button>
             <button id="btn-zoom-reset">100%</button>
             <button id="btn-zoom-in">+</button>
+            <div style="width:15px; border-left:1px solid #555; height:20px;"></div>
+            <button id="btn-export-pdf" class="export-btn" disabled>PDF</button>
+            <button id="btn-export-images" class="export-btn" disabled>ZIP</button>
         </div>
     </div>
 
